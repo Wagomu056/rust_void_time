@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 use url::Url;
+use chrono::{DateTime, Local, Utc};
+use serde::Deserialize;
 
 #[no_mangle]
 pub extern "C" fn void_time_collector_new(file_path: *const u8, file_path_len: usize) -> *mut VoidTimeCollector {
@@ -34,19 +36,31 @@ pub extern "C" fn void_time_collector_free(ptr: *mut VoidTimeCollector) {
     }
 }
 
-pub struct VoidTimeCollector {
-    _dates: Vec<VoidTimeDate>,
+#[no_mangle]
+pub extern "C" fn get_void_time_index(ptr: *const VoidTimeCollector, date: i64) -> usize {
+    let collector = unsafe {
+        assert!(!ptr.is_null());
+        &*ptr
+    };
+
+    let date_time = DateTime::<Utc>::from_timestamp(date, 0).unwrap();
+    collector.get_void_time_index(date_time)
 }
 
+pub struct VoidTimeCollector {
+    dates: Vec<VoidTimeDate>,
+}
+
+#[derive(Deserialize)]
 struct VoidTimeDate {
-    _start_time: u64,
-    _end_time: u64,
+    start: DateTime<Utc>,
+    end: DateTime<Local>,
 }
 
 impl VoidTimeCollector {
     fn new(file_path: &Path) -> VoidTimeCollector {
         let mut collector = VoidTimeCollector {
-            _dates: Vec::new(),
+            dates: Vec::new(),
         };
         collector.load_dates(file_path);
         collector
@@ -63,7 +77,13 @@ impl VoidTimeCollector {
 
         let void_time_string = fs::read_to_string(file_path)
             .expect(&format!("Failed to read file: {}", file_path.display()));
-        println!("Void time string: {}", void_time_string);
+
+        self.dates = serde_json::from_str(&void_time_string)
+            .expect("Failed to parse JSON");
+    }
+
+    fn get_void_time_index(&self, date: DateTime<Utc>) -> usize {
+        self.dates.iter().position(|d| date <= d.end).unwrap_or(0)
     }
 }
 
@@ -92,6 +112,39 @@ mod tests {
 
         let collector =
             void_time_collector_new_from_url(url.as_ptr(), url.len());
+        void_time_collector_free(collector);
+    }
+
+    #[test]
+    fn test_get_void_time_index() {
+        let path = "test_assets/void-time-test.json";
+        let collector =
+            void_time_collector_new(path.as_ptr(), path.len());
+
+        let date = "2024-01-01T10:00:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 0);
+
+        let date = "2024-01-03T09:00:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 0);
+
+        let date = "2024-01-03T09:48:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 0);
+
+        let date = "2024-01-03T09:49:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 1);
+
+        let date = "2024-02-04T15:29:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 5);
+
+        let date = "2024-02-04T15:30:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let index = get_void_time_index(collector, date.timestamp());
+        assert_eq!(index, 0);
+
         void_time_collector_free(collector);
     }
 }
