@@ -1,0 +1,12 @@
+# The language to output bindings in
+#
+# possible values: "C", "C++", "Cython"
+#
+# default: "C++"
+language = "C"
+
+# Codegen Options
+
+# If this option is true `usize` and `isize` will be converted into `size_t` and `ptrdiff_t`
+# instead of `uintptr_t` and `intptr_t` respectively.
+usize_is_size_t = true
