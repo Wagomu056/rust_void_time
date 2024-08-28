@@ -47,6 +47,17 @@ pub extern "C" fn get_void_time_index(ptr: *const VoidTimeCollector, date: i64) 
     collector.get_void_time_index(date_time)
 }
 
+#[no_mangle]
+pub extern "C" fn check_is_in_void_time(ptr: *const VoidTimeCollector, index: usize, target_date: i64) -> bool {
+    let collector = unsafe {
+        assert!(!ptr.is_null());
+        &*ptr
+    };
+
+    let target_date = DateTime::<Utc>::from_timestamp(target_date, 0).unwrap();
+    collector.check_is_in_void_time(index, target_date)
+}
+
 pub struct VoidTimeCollector {
     dates: Vec<VoidTimeDate>,
 }
@@ -84,6 +95,11 @@ impl VoidTimeCollector {
 
     fn get_void_time_index(&self, date: DateTime<Utc>) -> usize {
         self.dates.iter().position(|d| date <= d.end).unwrap_or(0)
+    }
+
+    fn check_is_in_void_time(&self, index: usize, target_date: DateTime<Utc>) -> bool {
+        let date = &self.dates[index];
+        date.start <= target_date && date.end >= target_date
     }
 }
 
@@ -146,5 +162,32 @@ mod tests {
         assert_eq!(index, 0);
 
         void_time_collector_free(collector);
+    }
+
+    #[test]
+    fn test_check_is_in_void_time() {
+        let path = "test_assets/void-time-test.json";
+        let collector =
+            void_time_collector_new(path.as_ptr(), path.len());
+
+        let date = "2024-01-03T08:36:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
+        assert_eq!(is_in_void_time, false);
+
+        let date = "2024-01-03T08:37:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
+        assert_eq!(is_in_void_time, true);
+
+        let date = "2024-01-03T09:00:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
+        assert_eq!(is_in_void_time, true);
+
+        let date = "2024-01-03T09:48:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
+        assert_eq!(is_in_void_time, true);
+
+        let date = "2024-01-03T09:49:00+09:00".parse::<DateTime<Utc>>().unwrap();
+        let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
+        assert_eq!(is_in_void_time, false);
     }
 }
