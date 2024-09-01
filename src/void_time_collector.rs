@@ -1,3 +1,4 @@
+use std::ffi::{c_char, CString};
 use std::fs;
 use std::path::Path;
 use url::Url;
@@ -5,6 +6,7 @@ use chrono::{DateTime, Local, Utc};
 use serde::Deserialize;
 
 #[no_mangle]
+// @TODO もしかしたらc_strで受け取るべきかもしれない
 pub extern "C" fn void_time_collector_new(file_path: *const u8, file_path_len: usize) -> *mut VoidTimeCollector {
     let file_path = unsafe {
         let slice = std::slice::from_raw_parts(file_path, file_path_len);
@@ -58,13 +60,40 @@ pub extern "C" fn check_is_in_void_time(ptr: *const VoidTimeCollector, index: us
     collector.check_is_in_void_time(index, target_date)
 }
 
+#[no_mangle]
+pub extern "C" fn get_start_date_by_index(ptr: *const VoidTimeCollector, index: usize, format: *const u8, format_len: usize) -> *mut c_char {
+    let collector = unsafe {
+        assert!(!ptr.is_null());
+        &*ptr
+    };
+
+    let format = unsafe {
+        let slice = std::slice::from_raw_parts(format, format_len);
+        std::str::from_utf8(slice).unwrap()
+    };
+
+    let start_date = collector.get_start_date_by_index(index, format);
+    let start_date = CString::new(start_date).unwrap();
+    start_date.into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn free_string(ptr: *mut c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = CString::from_raw(ptr);
+    }
+}
+
 pub struct VoidTimeCollector {
     dates: Vec<VoidTimeDate>,
 }
 
 #[derive(Deserialize)]
 struct VoidTimeDate {
-    start: DateTime<Utc>,
+    start: DateTime<Local>,
     end: DateTime<Local>,
 }
 
@@ -100,6 +129,10 @@ impl VoidTimeCollector {
     fn check_is_in_void_time(&self, index: usize, target_date: DateTime<Utc>) -> bool {
         let date = &self.dates[index];
         date.start <= target_date && date.end >= target_date
+    }
+
+    fn get_start_date_by_index(&self, index: usize, format: &str) -> String {
+        self.dates[index].start.format(format).to_string()
     }
 }
 
@@ -189,5 +222,30 @@ mod tests {
         let date = "2024-01-03T09:49:00+09:00".parse::<DateTime<Utc>>().unwrap();
         let is_in_void_time = check_is_in_void_time(collector, 0, date.timestamp());
         assert_eq!(is_in_void_time, false);
+    }
+
+    #[test]
+    fn test_get_start_date_by_index() {
+        let path = "test_assets/void-time-test.json";
+        let collector =
+            void_time_collector_new(path.as_ptr(), path.len());
+
+        let format = "%m/%d";
+        let start_date_ptr = get_start_date_by_index(collector, 0, format.as_ptr(), format.len());
+        let start_date = unsafe {
+            let c_str = std::ffi::CStr::from_ptr(start_date_ptr);
+            c_str.to_str().unwrap()
+        };
+        assert_eq!(start_date, "01/03");
+        free_string(start_date_ptr);
+
+        let format = "%H:%M ~";
+        let start_date_ptr = get_start_date_by_index(collector, 0, format.as_ptr(), format.len());
+        let start_date = unsafe {
+            let c_str = std::ffi::CStr::from_ptr(start_date_ptr);
+            c_str.to_str().unwrap()
+        };
+        assert_eq!(start_date, "08:37 ~");
+        free_string(start_date_ptr);
     }
 }
