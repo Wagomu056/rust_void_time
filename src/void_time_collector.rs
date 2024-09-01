@@ -78,6 +78,23 @@ pub extern "C" fn get_start_date_by_index(ptr: *const VoidTimeCollector, index: 
 }
 
 #[no_mangle]
+pub extern "C" fn get_end_date_by_index(ptr: *const VoidTimeCollector, index: usize, format: *const u8, format_len: usize) -> *mut c_char {
+    let collector = unsafe {
+        assert!(!ptr.is_null());
+        &*ptr
+    };
+
+    let format = unsafe {
+        let slice = std::slice::from_raw_parts(format, format_len);
+        std::str::from_utf8(slice).unwrap()
+    };
+
+    let end_date = collector.get_end_date_by_index(index, format);
+    let end_date = CString::new(end_date).unwrap();
+    end_date.into_raw()
+}
+
+#[no_mangle]
 pub extern "C" fn free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
@@ -133,6 +150,10 @@ impl VoidTimeCollector {
 
     fn get_start_date_by_index(&self, index: usize, format: &str) -> String {
         self.dates[index].start.format(format).to_string()
+    }
+
+    fn get_end_date_by_index(&self, index: usize, format: &str) -> String {
+        self.dates[index].end.format(format).to_string()
     }
 }
 
@@ -247,5 +268,21 @@ mod tests {
         };
         assert_eq!(start_date, "08:37 ~");
         free_string(start_date_ptr);
+    }
+
+    #[test]
+    fn test_get_end_date_by_index() {
+        let path = "test_assets/void-time-test.json";
+        let collector =
+            void_time_collector_new(path.as_ptr(), path.len());
+
+        let format = "~ %H:%M";
+        let end_date_ptr = get_end_date_by_index(collector, 0, format.as_ptr(), format.len());
+        let end_date = unsafe {
+            let c_str = std::ffi::CStr::from_ptr(end_date_ptr);
+            c_str.to_str().unwrap()
+        };
+        assert_eq!(end_date, "~ 09:48");
+        free_string(end_date_ptr);
     }
 }
